@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:latest
+    container_name: hopital-db
+    restart: on-failure
+    ports:
+      - 5433:5432
+    environment:
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - POSTGRES_DB
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - db:/var/lib/postgresql/data
+  api:
+    image: seluj789/selutech:latest
+    container_name: hopital-api
+    restart: on-failure
+    ports:
+      - 8081:8081
+    environment:
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - POSTGRES_DB
+      - POSTGRES_URL
+      - POSTGRES_PORT
+      - APPLICATION_URL
+      - MAIL_HOST
+      - MAIL_PORT
+      - MAIL_USER
+      - MAIL_PASSWORD
+      - KEY_STORE_PASSWORD
+    volumes:
+      - api:/app
+
+volumes:
+  db:
+    name: hopital-db
+  api:
+    name: hopital-api

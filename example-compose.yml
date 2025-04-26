@@ -1,0 +1,488 @@
+version: '3.3'
+
+volumes:
+  horus-postgres-data:
+    driver: local
+  horus-postgis-data:
+    driver: local
+  horus-prometheus-data:
+    driver: local
+  cache:
+    driver: local
+
+services:
+
+  # ********** WATCHTOWER **********
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: watchtower
+    environment:
+      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-"0 0 4 * * *"}
+      TZ: Europe/Paris
+      WATCHTOWER_CLEANUP: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json
+
+  # ********** AUTOHEALTH **********
+
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    container_name: autoheal
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=all
+      - AUTOHEAL_START_PERIOD=600
+    network_mode: none
+    restart: on-failure
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  # ********** PORTAINER **********
+
+  portainer:
+    image: portainer/portainer-ce:2.23.0
+    container_name: portainer
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/portainer:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "9000:9000"
+  #    labels:
+  #      - "traefik.enable=true"
+  #      - "traefik.http.routers.portainer.rule=PathPrefix(`/portainer`)"
+  #      - "traefik.http.routers.portainer.entrypoints=web"
+
+  # ********** NETDATA **********
+
+  netdata:
+    image: netdata/netdata:v1.47.5
+    container_name: netdata
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+      - ./data/netdata/netdataconfig:/etc/netdata
+      - ./data/netdata/netdatalib:/var/lib/netdata
+      - ./data/netdata/netdatacache:/var/cache/netdata
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      - DOCKER_USR=root
+    ports:
+      - "19999:19999"
+  #    labels:
+  #      - "traefik.enable=true"
+  #      - "traefik.http.routers.netdata.rule=PathPrefix(`/netdata`)"
+  #      - "traefik.http.routers.netdata.entrypoints=web"
+
+  # ********** POSTGIS / GEOSERVER **********
+
+  postgis-server:
+    image: kartoza/postgis:15-3.4
+    container_name: postgis-server
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - type: volume
+        source: horus-postgis-data
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: true
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_PASSWORD: "isara"
+    restart: on-failure
+
+  geoserver:
+    container_name: geoserver
+    image: kartoza/geoserver:2.25.0
+    volumes:
+      - ./data/geoserver:/opt/geoserver/data_dir
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "8089:8080"
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    environment:
+      GEOSERVER_ADMIN_PASSWORD: "admin"
+      GEOSERVER_ADMIN_USER: "isara"
+      DB_BACKEND: "POSTGRES"
+      HOST: "postgis-server"
+      POSTGRES_PORT: 5433
+      POSTGRES_DB: "gis"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASS: "isara"
+    depends_on:
+      - postgis-server
+
+  # ********** JSREPORT **********
+
+  jsreport:
+    image: jsreport/jsreport:4.5.0-full
+    container_name: jsreport
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    ports:
+      - "5488:5488"
+    volumes:
+      - ./config/jsreport:/jsreport
+      - ./data/jsreport/data:/app/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+
+  # ********** POSTGRES **********
+
+  postgres-server:
+    image: postgres:16
+    container_name: postgres-server
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    volumes:
+      - type: volume
+        source: horus-postgres-data
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: true
+      - type: bind
+        source: ./docker/postgres/create.sql
+        target: /docker-entrypoint-initdb.d/create.sql
+        read_only: true
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      POSTGRES_DB: "horus"
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "isara"
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+    ports:
+      - "5432:5432"
+
+  # ********** PROMETHEUS **********
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: prometheus
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    restart: on-failure
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - ./docker/redis/redis.json:/etc/prometheus/targets/redis.json
+      - type: volume
+        source: horus-prometheus-data
+        target: /prometheus
+    ports:
+      - "9090:9090"
+
+  blackbox-exporter:
+    container_name: prometheus-blackbox
+    image: prom/blackbox-exporter
+    restart: on-failure
+    ports:
+      - "9115:9115"
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+
+  # ********** REDIS **********
+
+  redis:
+    image: redis:7.4.1-alpine
+    restart: on-failure
+    container_name: redis
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    ports:
+      - "6379:6379"
+    volumes:
+      - cache:/data
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.6.0-alpine
+    restart: on-failure
+    container_name: redis-exporter
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+      - prometheus
+    command:
+      - '--redis.addr=redis://redis:6379'
+
+  # ********** GRAFANA **********
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: grafana
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    restart: on-failure
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - ./docker/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./docker/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3000:3000"
+
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: loki
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    restart: on-failure
+    volumes:
+      #- ./docker/loki/loki-local-config.yaml:/etc/loki/local-config.yaml:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "3100:3100"
+    command: ['-config.file=/etc/loki/local-config.yaml']
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: tempo
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    command: ['-config.file=/etc/tempo-config.yml']
+    ports:
+      - "3200:3200"     # Tempo
+      - "4317:4317"     # OTLP
+      - "9411:9411"     # Zipkin
+    volumes:
+      - ./docker/tempo/tempo.yml:/etc/tempo-config.yml
+      - ./data/tempo/tempo-data:/tmp/tempo
+
+  # ********** DATA-FORECAST **********
+
+  data-forecast:
+    image: isaratech/data-forecast:latest
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    container_name: data-forecast
+    ports:
+      - "6000:5000"
+
+  # ********** CONFIG / DISCOVERY / ADMIN / GATEWAY **********
+
+  horus-config-service:
+    container_name: horus-config-service
+    image: isaratech/horus-config-service:latest-${ENVIRONMENT}
+    restart: on-failure
+    environment:
+      HORUS_PROFILES: $HORUS_PROFILES,docker,composite,withgateway
+      JAVA_OPTS: ${CONFIG_SERVICE_JAVA_OPTS}
+    volumes:
+      - ./config/horus:/app/horus-config
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8888/application/default || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  horus-discovery-service:
+    container_name: horus-discovery-service
+    image: isaratech/horus-discovery-service:latest-${ENVIRONMENT}
+    restart: on-failure
+    environment:
+      HORUS_PROFILES: $HORUS_PROFILES,docker,withgateway
+      JAVA_OPTS: ${DISCOVERY_SERVICE_JAVA_OPTS}
+    depends_on:
+      horus-config-service:
+        condition: service_healthy
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8761/actuator/health | grep '\"status\":\"UP\"' || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  horus-gateway-service:
+    container_name: horus-gateway-service
+    image: isaratech/horus-gateway-service:latest-${ENVIRONMENT}
+    restart: on-failure
+    environment:
+      HORUS_PROFILES: $HORUS_PROFILES,docker,withgateway
+      JAVA_OPTS: ${GATEWAY_SERVICE_JAVA_OPTS}
+    ports:
+      - "8080:8080"
+    depends_on:
+      horus-config-service:
+        condition: service_healthy
+      horus-discovery-service:
+        condition: service_healthy
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.middlewares=backend_stripprefix"
+      - "traefik.http.middlewares.backend_stripprefix.stripprefix.prefixes=/api"
+      - "traefik.http.routers.backend.middlewares=cors"
+      - "traefik.http.middlewares.cors.headers.accesscontrolalloworiginlist=http://localhost,http://localhost:4200"
+      - "traefik.http.middlewares.cors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.cors.headers.accesscontrolallowmethods=*"
+      - "traefik.http.middlewares.cors.headers.accesscontrolallowcredentials=true"
+      - "traefik.http.middlewares.cors.headers.addvaryheader=true"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/actuator/health | grep '\"status\":\"UP\"' || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+
+    # ********** HORUS **********
+  sdis-connector-service:
+    #container_name: sdis-connector-service
+    image: isaratech/horus-sdis-connector-service:latest-${ENVIRONMENT}
+    deploy:
+      mode: replicated
+      replicas: ${SDIS_CONNECTOR_SERVICE_REPLICAS}
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    volumes:
+      - ./data/horus:/horus
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      HORUS_PROFILES: $HORUS_PROFILES,docker,withgateway
+      JAVA_OPTS: ${SDIS_CONNECTOR_SERVICE_JAVA_OPTS}
+    depends_on:
+      horus-config-service:
+        condition: service_healthy
+      horus-discovery-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8081/actuator/health | grep '\"status\":\"UP\"' || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 100
+
+  intervention-service:
+    image: isaratech/horus-intervention-service:latest-${ENVIRONMENT}
+    container_name: intervention-service
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    volumes:
+      - ./data/horus:/horus
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      HORUS_PROFILES: $HORUS_PROFILES,docker,withgateway
+      JAVA_OPTS: ${INTERVENTION_SERVICE_JAVA_OPTS}
+    depends_on:
+      postgres-server:
+        condition: service_started
+      horus-config-service:
+        condition: service_healthy
+      horus-discovery-service:
+        condition: service_healthy
+      sdis-connector-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8083/actuator/health | grep '\"status\":\"UP\"' || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 100
+
+  reporting-service:
+    image: isaratech/horus-reporting-service:latest-${ENVIRONMENT}
+    container_name: reporting-service
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    volumes:
+      - ./data/horus:/horus
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    environment:
+      HORUS_PROFILES: $HORUS_PROFILES,docker,withgateway
+      JAVA_OPTS: ${REPORTING_SERVICE_JAVA_OPTS}
+    depends_on:
+      postgres-server:
+        condition: service_started
+      horus-config-service:
+        condition: service_healthy
+      horus-discovery-service:
+        condition: service_healthy
+      intervention-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8080/actuator/health | grep '\"status\":\"UP\"' || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 100
+
+  horus-frontend:
+    image: isaratech/${HORUS_FRONTEND_IMAGE}:latest
+    container_name: horus-frontend
+    restart: on-failure
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    ports:
+      - "81:80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.routers.frontend.middlewares=frontend_nocache,sentry_header"
+      - "traefik.http.middlewares.frontend_nocache.headers.customResponseHeaders.Cache-Control=no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
+      - "traefik.http.middlewares.frontend_nocache.headers.customResponseHeaders.Pragma=no-cache"
+      - "traefik.http.middlewares.frontend_nocache.headers.customResponseHeaders.Expires=0"
+      - "traefik.http.middlewares.sentry_header.headers.customRequestHeaders.Document-Policy=js-profiling"
+      - "traefik.http.middlewares.sentry_header.headers.customResponseHeaders.Document-Policy=js-profiling"
+    healthcheck:
+      test: curl --fail http://localhost:80 || exit 1
+      interval: 60s
+      retries: 5
+      timeout: 10s
+    #    depends_on:
+    #      - horus-frontend-pre
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+
+  # ********** TRAEFIK **********
+
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik-reverse-proxy
+    extra_hosts: [ 'host.docker.internal:host-gateway' ]
+    restart: always
+    ports:
+      - "80:80"
+      - "82:8080" #dashboard
+      - "83:8082" #metrics
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker/traefik/traefik.toml:/etc/traefik/traefik.toml
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
