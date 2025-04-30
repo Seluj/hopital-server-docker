@@ -17,7 +17,7 @@ services:
     volumes:
       - db:/var/lib/postgresql/data
   api:
-    image: seluj789/selutech:latest
+    image: registry.selutech.fr/hopital-api:latest
     container_name: hopital-api
     restart: always
     ports:
@@ -36,6 +36,8 @@ services:
       - KEY_STORE_PASSWORD
     volumes:
       - api:/app
+    depends_on:
+      - db
 
 volumes:
   db:
