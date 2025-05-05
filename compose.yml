@@ -4,7 +4,7 @@ services:
     container_name: hopital-db
     restart: always
     ports:
-      - 5433:5432
+      - "5433:5432"
     environment:
       - POSTGRES_USER
       - POSTGRES_PASSWORD
@@ -21,7 +21,7 @@ services:
     container_name: hopital-api
     restart: always
     ports:
-      - 8081:8081
+      - "8081:8081"
     environment:
       - POSTGRES_USER
       - POSTGRES_PASSWORD
@@ -38,6 +38,16 @@ services:
       - api:/app
     depends_on:
       - db
+  web:
+    image: registry.selutech.fr/ui/hopital:latest
+    container_name: hopital-web
+    restart: always
+    ports:
+      - "8082:8082"
+    depends_on:
+      - api
+    networks:
+      - default
 
 volumes:
   db:
