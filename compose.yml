@@ -3,10 +3,10 @@ services:
     image: containrrr/watchtower
     container_name: watchtower
     environment:
-      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 4 * * *}
-      TZ: Europe/Paris
-      WATCHTOWER_CLEANUP: true
-      WATCHTOWER_LABEL_ENABLE: true
+      - WATCHTOWER_SCHEDULE=${WATCHTOWER_SCHEDULE:-0 0 4 * * *}
+      - TZ=Europe/Paris
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_LABEL_ENABLE=true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/config.json
@@ -40,14 +40,17 @@ services:
       - POSTGRES_USER
       - POSTGRES_PASSWORD
       - POSTGRES_DB
-      - POSTGRES_URL
-      - POSTGRES_PORT
+      - POSTGRES_URL=${POSTGRES_URL:-hopital-db}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - APPLICATION_URL
-      - MAIL_HOST
-      - MAIL_PORT
-      - MAIL_USER
-      - MAIL_PASSWORD
-      - KEY_STORE_PASSWORD
+      - MAIL_SMTP_HOST
+      - MAIL_SMTP_PORT
+      - MAIL_ADDRESS_FROM
+      - MAIL_SMTP_AUTH=${MAIL_SMTP_AUTH:-false}
+      - MAIL_SMTP_USER=${MAIL_SMTP_USER:-''}
+      - MAIL_SMTP_PASSWORD=${MAIL_SMTP_PASSWORD:-''}
+      - MAIL_SMTP_STARTTTLS_ENABLE=${MAIL_SMTP_STARTTTLS_ENABLE:-false}
+      - MAIL_SMTP_STARTTTLS_REQUIRED=${MAIL_SMTP_STARTTTLS_REQUIRED:-false}
     volumes:
       - api:/app
     depends_on:
