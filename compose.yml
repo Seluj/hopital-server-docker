@@ -6,6 +6,7 @@ services:
       WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 4 * * *}
       TZ: Europe/Paris
       WATCHTOWER_CLEANUP: true
+      WATCHTOWER_LABEL_ENABLE: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/config.json
@@ -26,6 +27,9 @@ services:
       retries: 5
     volumes:
       - db:/var/lib/postgresql/data
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   api:
     image: registry.selutech.fr/hopital-api:latest
     container_name: hopital-api
@@ -48,6 +52,9 @@ services:
       - api:/app
     depends_on:
       - db
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   web:
     image: registry.selutech.fr/hopital:${HOPITAL_VERSION:-latest}
     container_name: hopital-web
@@ -58,6 +65,8 @@ services:
       - api
     networks:
       - default
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
 volumes:
   db:
