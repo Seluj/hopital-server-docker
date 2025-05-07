@@ -39,7 +39,7 @@ services:
     depends_on:
       - db
   web:
-    image: registry.selutech.fr/ui/hopital:latest
+    image: registry.selutech.fr/hopital:${HOPITAL_VERSION:-latest}
     container_name: hopital-web
     restart: always
     ports:
@@ -48,6 +48,17 @@ services:
       - api
     networks:
       - default
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: watchtower
+    environment:
+      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-"0 0 4 * * *"}
+      TZ: Europe/Paris
+      WATCHTOWER_CLEANUP: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.docker/config.json:/config.json
 
 volumes:
   db:
