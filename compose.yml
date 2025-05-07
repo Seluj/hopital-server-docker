@@ -1,4 +1,14 @@
 services:
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    environment:
+      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-0 0 4 * * *}
+      TZ: Europe/Paris
+      WATCHTOWER_CLEANUP: true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.docker/config.json:/config.json
   db:
     image: postgres:latest
     container_name: hopital-db
@@ -48,17 +58,6 @@ services:
       - api
     networks:
       - default
-
-  watchtower:
-    image: containrrr/watchtower:1.7.1
-    container_name: watchtower
-    environment:
-      WATCHTOWER_SCHEDULE: ${WATCHTOWER_SCHEDULE:-"0 0 4 * * *"}
-      TZ: Europe/Paris
-      WATCHTOWER_CLEANUP: true
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME}/.docker/config.json:/config.json
 
 volumes:
   db:
