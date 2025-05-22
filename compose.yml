@@ -51,6 +51,8 @@ services:
       - MAIL_SMTP_PASSWORD=${MAIL_SMTP_PASSWORD:-''}
       - MAIL_SMTP_STARTTTLS_ENABLE=${MAIL_SMTP_STARTTTLS_ENABLE:-false}
       - MAIL_SMTP_STARTTTLS_REQUIRED=${MAIL_SMTP_STARTTTLS_REQUIRED:-false}
+      - MAIL_ADDRESS_SUPPORT=${MAIL_ADDRESS_SUPPORT:-'support@hnfc.fr'}
+      - PRE_SUBJECT_TITLE=${PRE_SUBJECT_TITLE:-'Suivi de la douleur'}
     volumes:
       - api:/app
     depends_on:
