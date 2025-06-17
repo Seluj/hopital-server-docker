@@ -26,7 +26,7 @@ services:
       timeout: 5s
       retries: 5
     volumes:
-      - db:/var/lib/postgresql/data
+      - ./hopital-db:/var/lib/postgresql/data
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
@@ -53,9 +53,9 @@ services:
       - MAIL_SMTP_STARTTTLS_ENABLE=${MAIL_SMTP_STARTTTLS_ENABLE:-false}
       - MAIL_SMTP_STARTTTLS_REQUIRED=${MAIL_SMTP_STARTTTLS_REQUIRED:-false}
       - PRE_SUBJECT_TITLE=${PRE_SUBJECT_TITLE:-'Suivi de la douleur'}
-      - PASSWORD_RESET_TOKEN_EXPIRATION=${PASSWORD_RESET_TOKEN_EXPIRATION:-'15'}
+      - PASSWORD_RESET_TOKEN_EXPIRATION=${PASSWORD_RESET_TOKEN_EXPIRATION:-15}
     volumes:
-      - api:/app
+      - ./hopital-api/logs:/logs
     depends_on:
       - db
     labels:
@@ -73,9 +73,3 @@ services:
       - default
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
-
-volumes:
-  db:
-    name: hopital-db
-  api:
-    name: hopital-api
